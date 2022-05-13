@@ -13,14 +13,14 @@
 #else
   #include "ph_grav.h"             
   Gravity_pH pH = Gravity_pH(A0);   
-#endif
-                
+#endif             
 
 uint8_t user_bytes_received = 0;                
 const uint8_t bufferlen = 32;                   
 char user_data[bufferlen];                     
 
-void parse_cmd(char* string) {                   
+void parse_cmd(char* string) 
+{                   
   strupr(string);                                
   if (strcmp(string, "CAL,7") == 0) {       
     pH.cal_mid();                                
@@ -38,7 +38,8 @@ void parse_cmd(char* string) {
     pH.cal_clear();                              
     Serial.println("CALIBRATION CLEARED");
   }
-} //end of pH reading declarations
+} 
+//end of pH reading declarations
 
 void setup(); 
 {
@@ -50,6 +51,7 @@ delay(200);
   if (pH.begin()) {                                     
     Serial.println("Loaded EEPROM");
   } // end of pH reading setup
+  
   // setup for pH up/down
   pinMode(4, OUTPUT);      // set the PH_UP pin mode
   pinMode(5, OUTPUT);      // set the PH_DN pin mode

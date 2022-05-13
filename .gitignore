@@ -1,52 +1,139 @@
-# Prerequisites
-*.d
+#include <SPI.h>
+#include <WiFiNINA.h>
+#include <NTPClient.h>
+#include <ezTime.h>
+#include <ArduinoMqttClient.h>
 
-# Object files
-*.o
-*.ko
-*.obj
-*.elf
+// Initial declarations for pH readings and calibration
+// #define USE_PULSE_OUT
 
-# Linker output
-*.ilk
-*.map
-*.exp
+#ifdef USE_PULSE_OUT
+  #include "ph_iso_grav.h"       
+  Gravity_pH_Isolated pH = Gravity_pH_Isolated(A0);         
+#else
+  #include "ph_grav.h"             
+  Gravity_pH pH = Gravity_pH(A0);   
+#endif
+                
 
-# Precompiled Headers
-*.gch
-*.pch
+uint8_t user_bytes_received = 0;                
+const uint8_t bufferlen = 32;                   
+char user_data[bufferlen];                     
 
-# Libraries
-*.lib
-*.a
-*.la
-*.lo
+void parse_cmd(char* string) {                   
+  strupr(string);                                
+  if (strcmp(string, "CAL,7") == 0) {       
+    pH.cal_mid();                                
+    Serial.println("MID CALIBRATED");
+  }
+  else if (strcmp(string, "CAL,4") == 0) {            
+    pH.cal_low();                                
+    Serial.println("LOW CALIBRATED");
+  }
+  else if (strcmp(string, "CAL,10") == 0) {      
+    pH.cal_high();                               
+    Serial.println("HIGH CALIBRATED");
+  }
+  else if (strcmp(string, "CAL,CLEAR") == 0) { 
+    pH.cal_clear();                              
+    Serial.println("CALIBRATION CLEARED");
+  }
+} //end of pH reading declarations
 
-# Shared objects (inc. Windows DLLs)
-*.dll
-*.so
-*.so.*
-*.dylib
+void setup(); 
+{
+Serial.begin(9600);      // initialize serial communication
+delay(200);
+// pH readings setup code
+  Serial.println(F("Use commands \"CAL,7\", \"CAL,4\", and \"CAL,10\" to calibrate the circuit to those respective values"));
+  Serial.println(F("Use command \"CAL,CLEAR\" to clear the calibration"));
+  if (pH.begin()) {                                     
+    Serial.println("Loaded EEPROM");
+  } // end of pH reading setup
+  // setup for pH up/down
+  pinMode(4, OUTPUT);      // set the PH_UP pin mode
+  pinMode(5, OUTPUT);      // set the PH_DN pin mode
+}
 
-# Executables
-*.exe
-*.out
-*.app
-*.i*86
-*.x86_64
-*.hex
+  
 
-# Debug files
-*.dSYM/
-*.su
-*.idb
-*.pdb
+  
+  
 
-# Kernel Module Compile Results
-*.mod*
-*.cmd
-.tmp_versions/
-modules.order
-Module.symvers
-Mkfile.old
-dkms.conf
+void loop();
+// pH reading loop code
+{
+  if (Serial.available() > 0) {                                                      
+    user_bytes_received = Serial.readBytesUntil(13, user_data, sizeof(user_data));   
+  }
+
+  if (user_bytes_received) {                                                      
+    parse_cmd(user_data);                                                          
+    user_bytes_received = 0;                                                        
+    memset(user_data, 0, sizeof(user_data));                                         
+  }
+  
+  Serial.println(pH.read_ph());                  // "pH.read_ph()" should be the variable name that gets sent to my outgoing MQTT topic for the pH reading                                    
+  delay(60000); // delay between readings in ms
+}
+
+
+/* This should work to recieve commands from the broker and adjust the pH
+   Need to edit topic once more code has been filled in
+   Command send to pH adjustment topic (TBD) must be "PHUP" or "PHDN"
+   Does this need a function to reply "Yo I did the thing boss!" 
+   or does the broker handle that if I send the command as QoS level 2?
+*/
+
+void callback(char *topic, byte *payload, unsigned int length) {
+    Serial.print("Message arrived in topic: ");
+    Serial.println(topic);  //edit this with pH adjustment topic name
+    Serial.print("Message:");
+    String message;
+    for (int i = 0; i < length; i++) {
+        message = message + (char) payload[i];  // convert *byte to string
+    }
+    Serial.print(message);
+    if (message == "PHUP") { digitalWrite(4, HIGH);
+          delay(5000);
+          digitalWrite(4, LOW);
+ }   // Dose of pH up
+    if (message == "off") { digitalWrite(5, HIGH);       
+          delay(5000);
+          digitalWrite(5, LOW); 
+ } // Dose of pH down
+    Serial.println();
+    Serial.println("-----------DONE!-----------");
+    
+    // MQTT simple send example code  
+ {
+  // call poll() regularly to allow the library to send MQTT keep alives which
+  // avoids being disconnected by the broker
+  mqttClient.poll();
+
+  // avoid having delays in loop, we'll use the strategy from BlinkWithoutDelay
+  // see: File -> Examples -> 02.Digital -> BlinkWithoutDelay for more info
+  unsigned long currentMillis = millis();
+  
+  if (currentMillis - previousMillis >= interval) {
+    // save the last time a message was sent
+    previousMillis = currentMillis;
+    time_t t = WiFi.getTime();
+    Serial.print("Sending message to topic: ");
+    Serial.println(topic  // rename this to outgoing pH reading topic
+    Serial.print("pH:  ");
+    Serial.println(pH.read_ph());
+    Serial.println(UTC.dateTime(t));
+
+    // send message, the Print interface can be used to set the message contents
+    mqttClient.beginMessage(topic);
+    mqttClient.print("pH: ");
+    mqttClient.print(pH.read_ph());
+    mqttClient.print(UTC.dateTime(t));
+    mqttClient.endMessage();
+
+    Serial.println();
+
+    count++;
+  }
+}

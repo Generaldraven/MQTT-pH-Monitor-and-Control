@@ -141,13 +141,16 @@ void loop() {
     // save the last time a message was sent
     previousMillis = currentMillis;
     
+    time_t t = WiFi.getTime();
     Serial.print("Sending message to topic: ");
     Serial.println(topic);
-    Serial.print("hello ");
-    Serial.println(count);
+    Serial.println(UTC.dateTime(t);
+    Serial.print("pH: ");
+    Serial.println(pH.read_ph());
 
     // send message, the Print interface can be used to set the message contents
     mqttClient.beginMessage(topic);
+    mqttClient.print(UTC.dateTime(t);
     mqttClient.print("pH: ");
     mqttClient.print(pH.read_ph());
     mqttClient.endMessage();

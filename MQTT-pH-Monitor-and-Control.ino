@@ -77,7 +77,7 @@ void setup() {
   mqttClient.setId("Arduino_MQTT_Client");
 
   // You can provide a username and password for authentication
-  mqttClient.setUsernamePassword("Heloc", "1arduinopH");
+  mqttClient.setUsernamePassword("XXXX", "XXXX");
 
   Serial.print("Attempting to connect to the MQTT broker: ");
   Serial.println(broker);

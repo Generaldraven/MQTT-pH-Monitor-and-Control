@@ -4,9 +4,8 @@
 #include <ezTime.h>
 #include <ArduinoMqttClient.h>
 
+// #define USE_PULSE_OUT 
 // Initial declarations for pH readings and calibration
-// #define USE_PULSE_OUT
-
 #ifdef USE_PULSE_OUT
   #include "ph_iso_grav.h"       
   Gravity_pH_Isolated pH = Gravity_pH_Isolated(A0);         
@@ -41,6 +40,32 @@ void parse_cmd(char* string)
 } 
 //end of pH reading declarations
 
+///////please enter your sensitive data in the Secret tab/arduino_secrets.h
+char ssid[] = SECRET_SSID;        // your network SSID (name)
+char pass[] = SECRET_PASS;    // your network password (use for WPA, or use as key for WEP)
+int keyIndex = 0;                 // your network key index number (needed only for WEP)
+
+int status = WL_IDLE_STATUS;
+
+// MQTT Server declarations
+// To connect with SSL/TLS:
+// 1) Change WiFiClient to WiFiSSLClient.
+// 2) Change port value from 1883 to 8883.
+// 3) Change broker value to a server with a known SSL/TLS root certificate 
+//    flashed in the WiFi module.
+
+WiFiClient wifiClient;  // Do I change "wifiClient"?
+MqttClient mqttClient(wifiClient);
+
+const char broker[] = "test.mosquitto.org";
+int        port     = 1883;
+const char topic[]  = "arduino/simple";
+
+const long interval = 1000;
+unsigned long previousMillis = 0;
+
+int count = 0;
+
 void setup(); 
 {
 Serial.begin(9600);      // initialize serial communication
@@ -55,12 +80,67 @@ delay(200);
   // setup for pH up/down
   pinMode(4, OUTPUT);      // set the PH_UP pin mode
   pinMode(5, OUTPUT);      // set the PH_DN pin mode
+  
+  // WiFi Setup
+  //Initialize serial and wait for port to open:
+  Serial.begin(9600);  // I can drop this line since it happens at the top of the loop right?
+  while (!Serial) {
+    ; // wait for serial port to connect. Needed for native USB port only
+  }
+
+  // check for the WiFi module:
+  if (WiFi.status() == WL_NO_MODULE) {
+    Serial.println("Communication with WiFi module failed!");
+    // don't continue
+    while (true);
+  }
+
+  String fv = WiFi.firmwareVersion();
+  if (fv < WIFI_FIRMWARE_LATEST_VERSION) {
+    Serial.println("Please upgrade the firmware");
+  }
+
+  // attempt to connect to WiFi network:
+  while (status != WL_CONNECTED) {
+    Serial.print("Attempting to connect to SSID: ");
+    Serial.println(ssid);
+    // Connect to WPA/WPA2 network. Change this line if using open or WEP network:
+    status = WiFi.begin(ssid, pass);
+
+    // wait 10 seconds for connection:
+    delay(10000);
+  }
+  server.begin();
+  // you're connected now, so print out the status:
+  printWifiStatus();
+
+    waitForSync();
+
+  Serial.println();
+  Serial.println("UTC: " + UTC.dateTime());
+  
+  // MQTT Setup
+  // You can provide a unique client ID, if not set the library uses Arduino-millis()
+  // Each client must have a unique client ID
+  // mqttClient.setId("clientId");
+
+  // You can provide a username and password for authentication
+  // mqttClient.setUsernamePassword("username", "password");
+
+  Serial.print("Attempting to connect to the MQTT broker: ");
+  Serial.println(broker);
+
+  if (!mqttClient.connect(broker, port)) {
+    Serial.print("MQTT connection failed! Error code = ");
+    Serial.println(mqttClient.connectError());
+
+    while (1);
+  }
+
+  Serial.println("You're connected to the MQTT broker!");
+  Serial.println();
 }
 
-  
-
-  
-  
 
 void loop();
 // pH reading loop code
@@ -68,17 +148,13 @@ void loop();
   if (Serial.available() > 0) {                                                      
     user_bytes_received = Serial.readBytesUntil(13, user_data, sizeof(user_data));   
   }
-
   if (user_bytes_received) {                                                      
     parse_cmd(user_data);                                                          
     user_bytes_received = 0;                                                        
     memset(user_data, 0, sizeof(user_data));                                         
   }
-  
   Serial.println(pH.read_ph());                  // "pH.read_ph()" should be the variable name that gets sent to my outgoing MQTT topic for the pH reading                                    
   delay(60000); // delay between readings in ms
-}
-
 
 /* This should work to recieve commands from the broker and adjust the pH
    Need to edit topic once more code has been filled in

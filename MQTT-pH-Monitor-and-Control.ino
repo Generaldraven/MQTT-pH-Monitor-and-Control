@@ -170,18 +170,15 @@ void onMqttMessage(int messageSize) {
   // use the Stream interface to print the contents
   while (mqttClient.available()) {
     Serial.print((char)mqttClient.read());}
-  if (mqttClient.messageTopic("phControl/phAdjust").c_str() = "PHUP") { digitalWrite(4, HIGH);
+  if (mqttClient.messageTopic() =="PHUP") { digitalWrite(4, HIGH);
           delay(5000);
           digitalWrite(4, LOW);
  }   // Dose of pH up
-    if (mqttClient = "off") { digitalWrite(5, HIGH);       
+    if (mqttClient.messageTopic() =="PHDN") { digitalWrite(5, HIGH);       
           delay(5000);
           digitalWrite(5, LOW); 
  } // Dose of pH down
     Serial.println();
     Serial.println("-----------DONE!-----------");  
-  }
-  Serial.println();
-
-  Serial.println();
+    Serial.println();
 }

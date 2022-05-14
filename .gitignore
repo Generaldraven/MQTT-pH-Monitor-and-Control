@@ -3,23 +3,37 @@
 #include <NTPClient.h>
 #include <ezTime.h>
 #include <ArduinoMqttClient.h>
+#include "ph_grav.h"             
+ Gravity_pH pH = Gravity_pH(A0);
 
-// #define USE_PULSE_OUT 
-// Initial declarations for pH readings and calibration
-#ifdef USE_PULSE_OUT
-  #include "ph_iso_grav.h"       
-  Gravity_pH_Isolated pH = Gravity_pH_Isolated(A0);         
-#else
-  #include "ph_grav.h"             
-  Gravity_pH pH = Gravity_pH(A0);   
-#endif             
+#include "arduino_secrets.h"
+///////please enter your sensitive data in the Secret tab/arduino_secrets.h
+char ssid[] = SECRET_SSID;        // your network SSID (name)
+char pass[] = SECRET_PASS;    // your network password (use for WPA, or use as key for WEP)
+
+// To connect with SSL/TLS:
+// 1) Change WiFiClient to WiFiSSLClient.
+// 2) Change port value from 1883 to 8883.
+// 3) Change broker value to a server with a known SSL/TLS root certificate 
+//    flashed in the WiFi module.
+
+WiFiClient wifiClient;
+MqttClient mqttClient(wifiClient);
+
+const char broker[] = "test.mosquitto.org";
+int        port     = 1883;
+const char topic[]  = "arduino/simple";
+
+const long interval = 1000;
+unsigned long previousMillis = 0;
+
+int count = 0;
 
 uint8_t user_bytes_received = 0;                
 const uint8_t bufferlen = 32;                   
-char user_data[bufferlen];                     
+char user_data[bufferlen];  
 
-void parse_cmd(char* string) 
-{                   
+void parse_cmd(char* string) {                   
   strupr(string);                                
   if (strcmp(string, "CAL,7") == 0) {       
     pH.cal_mid();                                
@@ -37,89 +51,27 @@ void parse_cmd(char* string)
     pH.cal_clear();                              
     Serial.println("CALIBRATION CLEARED");
   }
-} 
-//end of pH reading declarations
+}
 
-///////please enter your sensitive data in the Secret tab/arduino_secrets.h
-char ssid[] = SECRET_SSID;        // your network SSID (name)
-char pass[] = SECRET_PASS;    // your network password (use for WPA, or use as key for WEP)
-int keyIndex = 0;                 // your network key index number (needed only for WEP)
-
-int status = WL_IDLE_STATUS;
-
-// MQTT Server declarations
-// To connect with SSL/TLS:
-// 1) Change WiFiClient to WiFiSSLClient.
-// 2) Change port value from 1883 to 8883.
-// 3) Change broker value to a server with a known SSL/TLS root certificate 
-//    flashed in the WiFi module.
-
-WiFiClient wifiClient;  // Do I change "wifiClient"?
-MqttClient mqttClient(wifiClient);
-
-const char broker[] = "test.mosquitto.org";
-int        port     = 1883;
-const char topic[]  = "arduino/simple";
-
-const long interval = 1000;
-unsigned long previousMillis = 0;
-
-int count = 0;
-
-void setup(); 
-{
-Serial.begin(9600);      // initialize serial communication
-delay(200);
-// pH readings setup code
-  Serial.println(F("Use commands \"CAL,7\", \"CAL,4\", and \"CAL,10\" to calibrate the circuit to those respective values"));
-  Serial.println(F("Use command \"CAL,CLEAR\" to clear the calibration"));
-  if (pH.begin()) {                                     
-    Serial.println("Loaded EEPROM");
-  } // end of pH reading setup
-  
-  // setup for pH up/down
-  pinMode(4, OUTPUT);      // set the PH_UP pin mode
-  pinMode(5, OUTPUT);      // set the PH_DN pin mode
-  
-  // WiFi Setup
+void setup() {
   //Initialize serial and wait for port to open:
-  Serial.begin(9600);  // I can drop this line since it happens at the top of the loop right?
+  Serial.begin(9600);
   while (!Serial) {
     ; // wait for serial port to connect. Needed for native USB port only
   }
 
-  // check for the WiFi module:
-  if (WiFi.status() == WL_NO_MODULE) {
-    Serial.println("Communication with WiFi module failed!");
-    // don't continue
-    while (true);
+  // attempt to connect to Wifi network:
+  Serial.print("Attempting to connect to WPA SSID: ");
+  Serial.println(ssid);
+  while (WiFi.begin(ssid, pass) != WL_CONNECTED) {
+    // failed, retry
+    Serial.print(".");
+    delay(5000);
   }
 
-  String fv = WiFi.firmwareVersion();
-  if (fv < WIFI_FIRMWARE_LATEST_VERSION) {
-    Serial.println("Please upgrade the firmware");
-  }
-
-  // attempt to connect to WiFi network:
-  while (status != WL_CONNECTED) {
-    Serial.print("Attempting to connect to SSID: ");
-    Serial.println(ssid);
-    // Connect to WPA/WPA2 network. Change this line if using open or WEP network:
-    status = WiFi.begin(ssid, pass);
-
-    // wait 10 seconds for connection:
-    delay(10000);
-  }
-  server.begin();
-  // you're connected now, so print out the status:
-  printWifiStatus();
-
-    waitForSync();
-
+  Serial.println("You're connected to the network");
   Serial.println();
-  Serial.println("UTC: " + UTC.dateTime());
-  
-  // MQTT Setup
+
   // You can provide a unique client ID, if not set the library uses Arduino-millis()
   // Each client must have a unique client ID
   // mqttClient.setId("clientId");
@@ -139,56 +91,48 @@ delay(200);
 
   Serial.println("You're connected to the MQTT broker!");
   Serial.println();
+
+  // set the message receive callback
+  mqttClient.onMessage(onMqttMessage);
+
+  Serial.print("Subscribing to topic: ");
+  Serial.println(topic);
+  Serial.println();
+
+  // subscribe to a topic
+  mqttClient.subscribe(topic);
+
+  // topics can be unsubscribed using:
+  // mqttClient.unsubscribe(topic);
+
+  Serial.print("Waiting for messages on topic: ");
+  Serial.println(topic);
+  Serial.println();
+  Serial.println(F("Use commands \"CAL,7\", \"CAL,4\", and \"CAL,10\" to calibrate the circuit to those respective values"));
+  Serial.println(F("Use command \"CAL,CLEAR\" to clear the calibration"));
+  if (pH.begin()) {                                     
+  Serial.println("Loaded EEPROM");
+  }
+  // setup for pH up/down
+  pinMode(4, OUTPUT);      // set the PH_UP pin mode
+  pinMode(5, OUTPUT);      // set the PH_DN pin mode
 }
 
-
-void loop();
-// pH reading loop code
-{
+void loop() {
+  // call poll() regularly to allow the library to receive MQTT messages and
+  // send MQTT keep alives which avoids being disconnected by the broker
+  mqttClient.poll();
   if (Serial.available() > 0) {                                                      
     user_bytes_received = Serial.readBytesUntil(13, user_data, sizeof(user_data));   
   }
+
   if (user_bytes_received) {                                                      
     parse_cmd(user_data);                                                          
     user_bytes_received = 0;                                                        
     memset(user_data, 0, sizeof(user_data));                                         
   }
-  Serial.println(pH.read_ph());                  // "pH.read_ph()" should be the variable name that gets sent to my outgoing MQTT topic for the pH reading                                    
-  delay(60000); // delay between readings in ms
-
-/* This should work to recieve commands from the broker and adjust the pH
-   Need to edit topic once more code has been filled in
-   Command send to pH adjustment topic (TBD) must be "PHUP" or "PHDN"
-   Does this need a function to reply "Yo I did the thing boss!" 
-   or does the broker handle that if I send the command as QoS level 2?
-*/
-
-void callback(char *topic, byte *payload, unsigned int length) {
-    Serial.print("Message arrived in topic: ");
-    Serial.println(topic);  //edit this with pH adjustment topic name
-    Serial.print("Message:");
-    String message;
-    for (int i = 0; i < length; i++) {
-        message = message + (char) payload[i];  // convert *byte to string
-    }
-    Serial.print(message);
-    if (message == "PHUP") { digitalWrite(4, HIGH);
-          delay(5000);
-          digitalWrite(4, LOW);
- }   // Dose of pH up
-    if (message == "off") { digitalWrite(5, HIGH);       
-          delay(5000);
-          digitalWrite(5, LOW); 
- } // Dose of pH down
-    Serial.println();
-    Serial.println("-----------DONE!-----------");
-    
-    // MQTT simple send example code  
- {
-  // call poll() regularly to allow the library to send MQTT keep alives which
-  // avoids being disconnected by the broker
-  mqttClient.poll();
-
+  
+  Serial.println(pH.read_ph()); 
   // avoid having delays in loop, we'll use the strategy from BlinkWithoutDelay
   // see: File -> Examples -> 02.Digital -> BlinkWithoutDelay for more info
   unsigned long currentMillis = millis();
@@ -196,22 +140,48 @@ void callback(char *topic, byte *payload, unsigned int length) {
   if (currentMillis - previousMillis >= interval) {
     // save the last time a message was sent
     previousMillis = currentMillis;
-    time_t t = WiFi.getTime();
+    
     Serial.print("Sending message to topic: ");
-    Serial.println(topic  // rename this to outgoing pH reading topic
-    Serial.print("pH:  ");
-    Serial.println(pH.read_ph());
-    Serial.println(UTC.dateTime(t));
+    Serial.println(topic);
+    Serial.print("hello ");
+    Serial.println(count);
 
     // send message, the Print interface can be used to set the message contents
     mqttClient.beginMessage(topic);
     mqttClient.print("pH: ");
     mqttClient.print(pH.read_ph());
-    mqttClient.print(UTC.dateTime(t));
     mqttClient.endMessage();
 
     Serial.println();
 
     count++;
+  }                                                     
+  delay(60000);
+}
+
+void onMqttMessage(int messageSize) {
+  // we received a message, print out the topic and contents
+  Serial.println("Received a message with topic '");
+  Serial.print(mqttClient.messageTopic());
+  Serial.print("', length ");
+  Serial.print(messageSize);
+  Serial.println(" bytes:");
+
+  // use the Stream interface to print the contents
+  while (mqttClient.available()) {
+    Serial.print((char)mqttClient.read());
+  if (mqttClient == "PHUP") { digitalWrite(4, HIGH);  // compiles to here so I'm missing something translating the message recieved to a command
+          delay(5000);
+          digitalWrite(4, LOW);
+ }   // Dose of pH up
+    if (mqttClient == "off") { digitalWrite(5, HIGH);       
+          delay(5000);
+          digitalWrite(5, LOW); 
+ } // Dose of pH down
+    Serial.println();
+    Serial.println("-----------DONE!-----------");  
   }
+  Serial.println();
+
+  Serial.println();
 }

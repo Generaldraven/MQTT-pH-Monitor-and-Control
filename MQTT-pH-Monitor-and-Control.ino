@@ -1,3 +1,9 @@
+/*
+Early attempt at MQTT based pH readings/control
+I believe it will transmit the pH data correctly but not commands on the phControl/phAdjust topic
+*/
+
+
 #include <SPI.h>
 #include <WiFiNINA.h>
 #include <NTPClient.h>

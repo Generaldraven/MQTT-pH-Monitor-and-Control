@@ -5,7 +5,7 @@ Reads pH and sends reading to local MQTT broker
 Will accept MQTT broker messages with "UP" or "DOWN" commands to
 run pH up/down motors based on time.
 
-This code should be optimized and extra lines removed in other branches.
+This code is a WIP to optimized code and remove extra lines.
 */
 
 #include <PubSubClient.h>

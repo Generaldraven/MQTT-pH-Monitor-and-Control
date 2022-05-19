@@ -1,30 +1,67 @@
-#include <SPI.h>
+/*
+Verision 1.0
+Basic functional starting point.
+Reads pH and sends reading to local MQTT broker
+Will accept MQTT broker messages with "UP" or "DOWN" commands to
+run pH up/down motors based on time.
+
+This code should be optimized and extra lines removed in other branches.
+*/
+
+#include <PubSubClient.h>
 #include <WiFiNINA.h>
 #include <NTPClient.h>
 #include <ezTime.h>
-#include <ArduinoMqttClient.h>
 #include "ph_grav.h"             
  Gravity_pH pH = Gravity_pH(A0);
-
 #include "arduino_secrets.h"
-///////please enter your sensitive data in the Secret tab/arduino_secrets.h
+
+
 char ssid[] = SECRET_SSID;        // your network SSID (name)
 char pass[] = SECRET_PASS;    // your network password (use for WPA, or use as key for WEP)
+int status = WL_IDLE_STATUS;     // the Wifi radio's status
+byte server[] = {192,168,0,200}; //Local Mosquitto server
+int port = 1883; //the port of the MQTT broker
+const char* topic = "phControl/phAdjust";
+const char* outTopic = "phControl/phRead";
+int phDnPIN = 5;
+int phUpPIN = 4;
+int doseTime = 15000;
 
-// To connect with SSL/TLS:
-// 1) Change WiFiClient to WiFiSSLClient.
-// 2) Change port value from 1883 to 8883.
-// 3) Change broker value to a server with a known SSL/TLS root certificate 
-//    flashed in the WiFi module.
 
-WiFiSSLClient wifiClient;
-MqttClient mqttClient(wifiClient);
+// Handles messages arrived on subscribed topic(s)
+void callback(char* topic, byte* payload, unsigned int length) {
+  String result;
+  Serial.print("Message arrived [");
+  Serial.print("phControl/phAdjust");
+  Serial.print("]: ");
+  for (int i=0;i<length;i++) {
+    Serial.print((char)payload[i]);
+    result += (char)payload[i];
+  }
+  Serial.println("");
 
-const char broker[] = "28f063b79e144239854f297f2e91d118.s2.eu.hivemq.cloud";
-int        port     = 8883;
-const char topic[]  = "phControl";
+  //Act on the message
+  if (result.equalsIgnoreCase("UP")) {
+    Serial.println("Adjust pH UP!");
+    digitalWrite(phUpPIN, HIGH);
+    delay(doseTime);
+    digitalWrite(phUpPIN, LOW);
+  } else if (result.equalsIgnoreCase("DOWN")) {
+    Serial.println("Adjusting pH DOWN!");
+    digitalWrite(phDnPIN, HIGH);
+    delay(doseTime);
+    digitalWrite(phDnPIN, LOW);
+  } else {
+    Serial.println("Do nothing");
+  }
+}
 
-const long interval = 10000;
+WiFiClient wifiClient;
+PubSubClient mqttClient(server, port, callback, wifiClient);//Local Mosquitto Connection
+//mqttClient.setCallback(callback);
+
+const long interval =60000;
 unsigned long previousMillis = 0;
 
 int count = 0;
@@ -51,78 +88,122 @@ void parse_cmd(char* string) {
     pH.cal_clear();                              
     Serial.println("CALIBRATION CLEARED");
   }
+  else if (strcmp(string, "PHUP") == 0) {
+    digitalWrite(phUpPIN, HIGH);
+    delay(doseTime);
+    digitalWrite(phUpPIN, LOW);
+  }   // Dose of pH up
+  else if (strcmp(string, "PHDN") == 0) {
+    digitalWrite(phDnPIN, HIGH);
+    delay(doseTime);
+    digitalWrite(phDnPIN, LOW);
+   }   // Dose of pH down
+   mqttClient.setStream(Serial);
+  mqttClient.setCallback(callback);
 }
 
 void setup() {
+  mqttClient.setStream(Serial);
+  mqttClient.setCallback(callback);
+  pinMode(phUpPIN, OUTPUT);
+  pinMode(phDnPIN, OUTPUT);
+  
   //Initialize serial and wait for port to open:
   Serial.begin(9600);
   while (!Serial) {
     ; // wait for serial port to connect. Needed for native USB port only
   }
+ 
+  //WiFi Connection -- Start
+  // check for the WiFi module:
+  if (WiFi.status() == WL_NO_MODULE) {
+    Serial.println("Communication with WiFi module failed!");
+    // don't continue
+    while (true);
+  }
+
+  String fv = WiFi.firmwareVersion();
+  if (fv < "1.0.0") {
+    Serial.println("Please upgrade the firmware");
+  }
 
   // attempt to connect to Wifi network:
-  Serial.print("Attempting to connect to WPA SSID: ");
-  Serial.println(ssid);
-  while (WiFi.begin(ssid, pass) != WL_CONNECTED) {
-    // failed, retry
-    Serial.print(".");
-    delay(5000);
+  while (status != WL_CONNECTED) {
+    Serial.print("Attempting to connect to WPA SSID: ");
+    Serial.println(ssid);
+    // Connect to WPA/WPA2 network:
+    status = WiFi.begin(ssid, pass);
+
+    // wait 10 seconds for connection:
+    delay(10000);
   }
 
-  Serial.println("You're connected to the network");
-  Serial.println();
+  // you're connected now, so print out the data:
+  Serial.print("You're connected to the network");
+  printCurrentNet();
+  printWifiData();
+  //WiFi Connection -- End
+   
+  //Local Mosquitto Connection -- Start
+  if (mqttClient.connect("arduino")) {
+    // connection succeeded
+    Serial.println("Connection succeeded.");
+    Serial.print("Subscribing to the topic [");
+    Serial.print("phControl/phAdjust");
+    Serial.println("]");
+    mqttClient.subscribe("phControl/phAdjust");
+    Serial.println("Successfully subscribed to the topic.");
+    //mqttClient* setCallback(callback());
+   
+   } else {
+      // connection failed
+      // mqttClient.state() will provide more information
+      // on why it failed.
+      Serial.print("Connection failed. MQTT client state is: ");
+      Serial.println(mqttClient.state());
+   }
+  //Local Mosquitto Connection -- End
 
-  // You can provide a unique client ID, if not set the library uses Arduino-millis()
-  // Each client must have a unique client ID
-  mqttClient.setId("Arduino_MQTT_Client");
-
-  // You can provide a username and password for authentication
-  mqttClient.setUsernamePassword("XXXX", "XXXX");
-
-  Serial.print("Attempting to connect to the MQTT broker: ");
-  Serial.println(broker);
-
-  if (!mqttClient.connect(broker, port)) {
-    Serial.print("MQTT connection failed! Error code = ");
-    Serial.println(mqttClient.connectError());
-
-    while (1);
-  }
-
-  Serial.println("You're connected to the MQTT broker!");
-  Serial.println();
-
-  // set the message receive callback
-  mqttClient.onMessage(onMqttMessage);
-
-  Serial.print("Subscribing to topic: ");
-  Serial.println("phControl/phAdjust");
-  Serial.println();
-
-  // subscribe to a topic
-  mqttClient.subscribe("phControl/phAdjust");
-
-  // topics can be unsubscribed using:
-  // mqttClient.unsubscribe("phControl/phAdjust");
-
-  Serial.print("Waiting for messages on topic: ");
-  Serial.println("phControl/phAdjust");
+// pH probe calibration serial commands
   Serial.println();
   Serial.println(F("Use commands \"CAL,7\", \"CAL,4\", and \"CAL,10\" to calibrate the circuit to those respective values"));
   Serial.println(F("Use command \"CAL,CLEAR\" to clear the calibration"));
   if (pH.begin()) {                                     
   Serial.println("Loaded EEPROM");
+  Serial.println();
   }
-  // setup for pH up/down
-  pinMode(4, OUTPUT);      // set the PH_UP pin mode
-  pinMode(5, OUTPUT);      // set the PH_DN pin mode
 }
 
-void loop() {
-  // call poll() regularly to allow the library to receive MQTT messages and
-  // send MQTT keep alives which avoids being disconnected by the broker
-  mqttClient.poll();
+void reconnect() {
+  // Loop until we're reconnected
+  while (!mqttClient.connected()) {
+    Serial.print("Attempting MQTT connection...");
+    // Attempt to connect
+    if (mqttClient.connect("arduino")) {
+      Serial.println("connected");
+      // Subscribe
+      mqttClient.subscribe("phControl/phAdjust");
+    } else {
+      Serial.print("failed, rc=");
+      Serial.print(mqttClient.state());
+      Serial.println(" try again in 5 seconds");
+      // Wait 5 seconds before retrying
+      delay(5000);
+    }
+  }
 
+}
+
+
+void loop() {
+ if (!mqttClient.connected()) {
+    reconnect();
+  } else {
+  mqttClient.loop();
+  callback;
+  
+  mqttClient.setStream(Serial);
+  mqttClient.setCallback(callback);
   unsigned long currentMillis = millis();
   if (currentMillis - previousMillis >= interval){
     previousMillis = currentMillis;
@@ -135,50 +216,75 @@ void loop() {
     parse_cmd(user_data);                                                          
     user_bytes_received = 0;                                                        
     memset(user_data, 0, sizeof(user_data));                                         
-  }
-  
-  Serial.println(pH.read_ph()); 
-
+  }  
     time_t t = WiFi.getTime();
     Serial.print("Sending message to topic: ");
     Serial.println("phControl/phRead");
     Serial.println(UTC.dateTime(t));
-    Serial.print("pH: ");
-    Serial.println(pH.read_ph());
+    //Serial.print("pH: ");
+    //Serial.println(pH.read_ph());
 
-    // send message, the Print interface can be used to set the message contents
-    mqttClient.beginMessage("phControl/phRead");
-    mqttClient.print(UTC.dateTime(t));
-    mqttClient.print("pH: ");
-    mqttClient.print(pH.read_ph());
-    mqttClient.endMessage();
+    float newpH = pH.read_ph();
+
+      Serial.print("pH: ");
+      Serial.println(String(newpH).c_str());
+      mqttClient.publish("phControl/phRead", String(newpH).c_str(), true);
 
     Serial.println();
 
     count++;
-  }                                                     
+  }
+  mqttClient.setStream(Serial);
+  mqttClient.setCallback(callback);
+ }
 }
 
-void onMqttMessage(int messageSize) {
-  // we received a message, print out the topic and contents
-  Serial.println("Received a message with topic '");
-  Serial.print(mqttClient.messageTopic());
-  Serial.print("', length ");
-  Serial.print(messageSize);
-  Serial.println(" bytes:");
+void printWifiData() {
+  // print your board's IP address:
+  IPAddress ip = WiFi.localIP();
+  Serial.print("IP Address: ");
+  Serial.println(ip);
+  Serial.println(ip);
 
-  // use the Stream interface to print the contents
-  while (mqttClient.available()) {
-    Serial.print((char)mqttClient.read());}
-  if (mqttClient.messageTopic() =="PHUP") { digitalWrite(4, HIGH);
-          delay(5000);
-          digitalWrite(4, LOW);
- }   // Dose of pH up
-    if (mqttClient.messageTopic() =="PHDN") { digitalWrite(5, HIGH);       
-          delay(5000);
-          digitalWrite(5, LOW); 
- } // Dose of pH down
-    Serial.println();
-    Serial.println("-----------DONE!-----------");  
-    Serial.println();
+  // print your MAC address:
+  byte mac[6];
+  WiFi.macAddress(mac);
+  Serial.print("MAC address: ");
+  printMacAddress(mac);
+}
+
+void printCurrentNet() {
+  // print the SSID of the network you're attached to:
+  Serial.print("SSID: ");
+  Serial.println(WiFi.SSID());
+
+  // print the MAC address of the router you're attached to:
+  byte bssid[6];
+  WiFi.BSSID(bssid);
+  Serial.print("BSSID: ");
+  printMacAddress(bssid);
+
+  // print the received signal strength:
+  long rssi = WiFi.RSSI();
+  Serial.print("signal strength (RSSI):");
+  Serial.println(rssi);
+
+  // print the encryption type:
+  byte encryption = WiFi.encryptionType();
+  Serial.print("Encryption Type:");
+  Serial.println(encryption, HEX);
+  Serial.println();
+}
+
+void printMacAddress(byte mac[]) {
+  for (int i = 5; i >= 0; i--) {
+    if (mac[i] < 16) {
+      Serial.print("0");
+    }
+    Serial.print(mac[i], HEX);
+    if (i > 0) {
+      Serial.print(":");
+    }
+  }
+  Serial.println();
 }

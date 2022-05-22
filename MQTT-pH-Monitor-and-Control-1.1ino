@@ -65,8 +65,6 @@ PubSubClient mqttClient(server, port, callback, wifiClient);//Local Mosquitto Co
 const long interval =60000;
 unsigned long previousMillis = 0;
 
-int count = 0;
-
 uint8_t user_bytes_received = 0;                
 const uint8_t bufferlen = 32;                   
 char user_data[bufferlen];  
@@ -244,8 +242,6 @@ void loop() {
       mqttClient.publish("phControl/phRead", String(newpH).c_str() + UTC.dateTime(RFC850), true); // UTC.dateTime doesn't compile
 
     Serial.println();
-
-   // count++;
   }
  }
 }

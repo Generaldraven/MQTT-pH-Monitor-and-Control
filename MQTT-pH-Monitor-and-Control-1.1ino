@@ -37,7 +37,7 @@ int doseTimeLg = 45000;
 void callback(char* topic, byte* payload, unsigned int length) {
   String result;
   Serial.print("Message arrived [");
-  Serial.print("phControl/phAdjust");
+  Serial.print(topic);
   Serial.print("]: ");
   for (int i=0;i<length;i++) {
     Serial.print((char)payload[i]);
@@ -83,7 +83,6 @@ void callback(char* topic, byte* payload, unsigned int length) {
 
 WiFiClient wifiClient;
 PubSubClient mqttClient(server, port, callback, wifiClient);//Local Mosquitto Connection
-//mqttClient.setCallback(callback);
 
 const long interval =60000;
 unsigned long previousMillis = 0;
@@ -112,16 +111,14 @@ void parse_cmd(char* string) {
   }
   else if (strcmp(string, "PHUP") == 0) {
     digitalWrite(phUpPIN, HIGH);
-    delay(doseTime);
+    delay(doseTimeSm);
     digitalWrite(phUpPIN, LOW);
   }   // Dose of pH up
   else if (strcmp(string, "PHDN") == 0) {
     digitalWrite(phDnPIN, HIGH);
-    delay(doseTime);
+    delay(doseTimeSm);
     digitalWrite(phDnPIN, LOW);
    }   // Dose of pH down
-   mqttClient.setStream(Serial);
-  mqttClient.setCallback(callback);
 }
 
 void WiFiReconnect() {
@@ -185,16 +182,15 @@ void setup() {
     // connection succeeded
     Serial.println("Connection succeeded.");
     Serial.print("Subscribing to the topic [");
-    Serial.print("phControl/phAdjust");
+    Serial.print(topic);
     Serial.println("]");
-    mqttClient.subscribe("phControl/phAdjust");
+    mqttClient.subscribe(topic);
     Serial.println("Successfully subscribed to the topic.");
     //mqttClient* setCallback(callback());
    
    } else {
       // connection failed
-      // mqttClient.state() will provide more information
-      // on why it failed.
+      // mqttClient.state() will provide more information on why it failed.
       Serial.print("Connection failed. MQTT client state is: ");
       Serial.println(mqttClient.state());
    }
@@ -218,7 +214,7 @@ void reconnect() {
     if (mqttClient.connect("arduino")) {
       Serial.println("connected");
       // Subscribe
-      mqttClient.subscribe("phControl/phAdjust");
+      mqttClient.subscribe(topic);
     } else {
       Serial.print("failed, rc=");
       Serial.print(mqttClient.state());
@@ -253,7 +249,7 @@ void loop() {
   }  
     time_t t = WiFi.getTime();
     Serial.print("Sending message to topic: ");
-    Serial.println("phControl/phRead");
+    Serial.println(outTopic);
     Serial.println(UTC.dateTime(t));
     //Serial.print("pH: ");
     //Serial.println(pH.read_ph());
@@ -262,7 +258,7 @@ void loop() {
 
       Serial.print("pH: ");
       Serial.println(String(newpH).c_str());
-      mqttClient.publish("phControl/phRead", String(newpH).c_str() + UTC.dateTime(RFC850), true); // UTC.dateTime doesn't compile
+      mqttClient.publish(outTopic, String(newpH).c_str() + UTC.dateTime(RFC850), true); // UTC.dateTime doesn't compile
 
     Serial.println();
   }

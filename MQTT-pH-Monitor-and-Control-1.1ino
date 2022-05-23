@@ -1,5 +1,5 @@
 /*
-Verision 1.0
+Verision 1.2
 Basic functional starting point.
 Reads pH and sends reading to local MQTT broker
 Will accept MQTT broker messages with "UP" or "DOWN" commands to
@@ -7,9 +7,15 @@ run pH up/down motors based on time.
 
 This code is a WIP to optimized code and remove extra lines.
 
-5/19/2022: Device was not connected in the morning so I added a "wifiReconnect" function.  It seems to be working but I have not watched it run on the serial monitor
-5/22/2022: swapped position of the two reconnect functions so that it checks for and attempts to reconnect to wifi before checking and attempting to connect to the MQTT broker.  Also added small/med/large dose options.
- */
+5/19/2022: Device was not connected in the morning so I added a "wifiReconnect" function.  
+It seems to be working but I have not watched it run on the serial monitor
+
+5/22/2022: swapped position of the two reconnect functions so that it checks for and attempts 
+to reconnect to wifi before checking and attempting to connect to the MQTT broker.  
+Added small/med/large dose options.
+Removed a bunch of functions to print various wifi data since I know or assign that info now (IP address, MAC addres, etc.)
+Added an MQTT publish line to send WiFi.getTime(t); but unsure what it will return.
+*/
 
 #include <PubSubClient.h>
 #include <WiFiNINA.h>
@@ -20,8 +26,8 @@ This code is a WIP to optimized code and remove extra lines.
 #include "arduino_secrets.h"
 
 
-char ssid[] = SECRET_SSID;        // your network SSID (name)
-char pass[] = SECRET_PASS;    // your network password (use for WPA, or use as key for WEP)
+char ssid[] = SECRET_SSID;       // your network SSID (name)
+char pass[] = SECRET_PASS;       // your network password (use for WPA, or use as key for WEP)
 int status = WL_IDLE_STATUS;     // the Wifi radio's status
 byte server[] = {192,168,0,200}; //Local Mosquitto server
 int port = 1883; //the port of the MQTT broker
@@ -112,19 +118,19 @@ void parse_cmd(char* string) {
   else if (strcmp(string, "PHUP") == 0) {
     digitalWrite(phUpPIN, HIGH);
     delay(doseTimeSm);
-    digitalWrite(phUpPIN, LOW);
-  }   // Dose of pH up
+    digitalWrite(phUpPIN, LOW); // Dose of pH up
+  }   
   else if (strcmp(string, "PHDN") == 0) {
     digitalWrite(phDnPIN, HIGH);
     delay(doseTimeSm);
-    digitalWrite(phDnPIN, LOW);
-   }   // Dose of pH down
+    digitalWrite(phDnPIN, LOW); // Dose of pH down
+  }   
 }
 
 void WiFiReconnect() {
-  //WiFi Connection -- Start attempt to connect to Wifi network:
+  //WiFi ReConnection -- Start attempt to reconnect to Wifi network:
   while (status != WL_CONNECTED) {
-    Serial.print("Attempting to connect to WPA SSID: ");
+    Serial.print("Attempting to reconnect to WPA SSID: ");
     Serial.println(ssid);
     status = WiFi.begin(ssid, pass);  // Connect to WPA/WPA2 network:
     
@@ -132,9 +138,7 @@ void WiFiReconnect() {
   }
 
   Serial.print("You're connected to the network"); // you're connected now, so print out the data:
-  printCurrentNet();
-  printWifiData();
-  //WiFi Connection -- End
+  //WiFi ReConnection -- End
 }
 
 void setup() {
@@ -171,10 +175,7 @@ void setup() {
     delay(10000);
   }
 
-  // you're connected now, so print out the data:
   Serial.print("You're connected to the network");
-  printCurrentNet();
-  printWifiData();
   //WiFi Connection -- End
    
   //Local Mosquitto Connection -- Start
@@ -186,15 +187,12 @@ void setup() {
     Serial.println("]");
     mqttClient.subscribe(topic);
     Serial.println("Successfully subscribed to the topic.");
-    //mqttClient* setCallback(callback());
    
    } else {
       // connection failed
-      // mqttClient.state() will provide more information on why it failed.
       Serial.print("Connection failed. MQTT client state is: ");
       Serial.println(mqttClient.state());
-   }
-  //Local Mosquitto Connection -- End
+   } //Local Mosquitto Connection -- End
 
 // pH probe calibration serial commands
   Serial.println();
@@ -219,8 +217,8 @@ void reconnect() {
       Serial.print("failed, rc=");
       Serial.print(mqttClient.state());
       Serial.println(" try again in 5 seconds");
-      // Wait 5 seconds before retrying
-      delay(5000);
+      // Wait 15 seconds before retrying
+      delay(15000);
     }
   }
 }
@@ -250,67 +248,15 @@ void loop() {
     time_t t = WiFi.getTime();
     Serial.print("Sending message to topic: ");
     Serial.println(outTopic);
-    Serial.println(UTC.dateTime(t));
-    //Serial.print("pH: ");
-    //Serial.println(pH.read_ph());
 
     float newpH = pH.read_ph();
 
       Serial.print("pH: ");
       Serial.println(String(newpH).c_str());
-      mqttClient.publish(outTopic, String(newpH).c_str() + UTC.dateTime(RFC850), true); // UTC.dateTime doesn't compile
+      mqttClient.publish(outTopic, String(newpH).c_str(), true); // UTC.dateTime doesn't compile
+      mqttClient.publish(outTopic, WiFi.getTime(), true);
 
     Serial.println();
   }
  }
-}
-
-void printWifiData() {
-  // print your board's IP address:
-  IPAddress ip = WiFi.localIP();
-  Serial.print("IP Address: ");
-  Serial.println(ip);
-  Serial.println(ip);
-
-  // print your MAC address:
-  byte mac[6];
-  WiFi.macAddress(mac);
-  Serial.print("MAC address: ");
-  printMacAddress(mac);
-}
-
-void printCurrentNet() {
-  // print the SSID of the network you're attached to:
-  Serial.print("SSID: ");
-  Serial.println(WiFi.SSID());
-
-  // print the MAC address of the router you're attached to:
-  byte bssid[6];
-  WiFi.BSSID(bssid);
-  Serial.print("BSSID: ");
-  printMacAddress(bssid);
-
-  // print the received signal strength:
-  long rssi = WiFi.RSSI();
-  Serial.print("signal strength (RSSI):");
-  Serial.println(rssi);
-
-  // print the encryption type:
-  byte encryption = WiFi.encryptionType();
-  Serial.print("Encryption Type:");
-  Serial.println(encryption, HEX);
-  Serial.println();
-}
-
-void printMacAddress(byte mac[]) {
-  for (int i = 5; i >= 0; i--) {
-    if (mac[i] < 16) {
-      Serial.print("0");
-    }
-    Serial.print(mac[i], HEX);
-    if (i > 0) {
-      Serial.print(":");
-    }
-  }
-  Serial.println();
 }

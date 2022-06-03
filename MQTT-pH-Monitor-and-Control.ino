@@ -1,9 +1,29 @@
 /*
-Verision 1.0
-Basic functional starting point.
+Verision 1.4
 Reads pH and sends reading to local MQTT broker
 Will accept MQTT broker messages with "UP" or "DOWN" commands to
-run pH up/down motors based on time.
+run pH up/down motors based on time.int connection_count = 0;
+void reconnect() {
+  // Loop until we're reconnected
+  while (!mqttClient.connected()) {
+    Serial.print("Attempting MQTT connection...");
+    // Attempt to connect
+        ++connection_count;
+        Serial.println("Arduino" + connection_count);
+        String clientID = "Arduino" + String(connection_count);
+    if (mqttClient.connect( clientID.c_str())) {
+      Serial.println("Reconnected");
+      // Subscribe
+      mqttClient.subscribe(topic);
+    } else {
+      Serial.print("failed, rc=");
+      Serial.print(mqttClient.state());
+      Serial.println(" try again in 15 seconds");
+      // Wait 15 seconds before retrying
+      delay(15000);
+    }
+  }
+}
 This code should be optimized and extra lines removed in other branches.
 */
 

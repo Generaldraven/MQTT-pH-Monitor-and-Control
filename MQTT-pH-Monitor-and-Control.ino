@@ -13,6 +13,8 @@ Removed a bunch of functions to print various wifi data since I know or assign t
 Added an MQTT publish line to send WiFi.getTime(t); but unsure what it will return.
 
 6/4/2022: Added reset loop so Arduino resets every hour as a work-around until I can figure out why it won't reconnect to WiFi
+
+6/6/2022: Reset loop functions but does not solve WiFi reconnect issue.  If the system loses WiFi it seems it crashes rather than attempt to reconnect.
 */
 
 #include <PubSubClient.h>

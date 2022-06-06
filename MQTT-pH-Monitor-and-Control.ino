@@ -6,9 +6,6 @@ run pH up/down motors based on time.
 
 This code is a WIP to optimized code and remove extra lines.
 
-5/19/2022: Device was not connected in the morning so I added a "wifiReconnect" function.  
-It seems to be working but I have not watched it run on the serial monitor
-
 5/22/2022: swapped position of the two reconnect functions so that it checks for and attempts 
 to reconnect to wifi before checking and attempting to connect to the MQTT broker.  
 Added small/med/large dose options.

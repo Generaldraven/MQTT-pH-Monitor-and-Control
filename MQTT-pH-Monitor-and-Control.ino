@@ -23,23 +23,34 @@ Added an MQTT publish line to send WiFi.getTime(t); but unsure what it will retu
 #include <NTPClient.h>
 #include <ezTime.h>
 #include "ph_grav.h"             
- Gravity_pH pH = Gravity_pH(A0);
 #include "arduino_secrets.h"
 
+WiFiClient wifiClient;
+PubSubClient mqttClient(server, port, callback, wifiClient);//Local Mosquitto Connection
+Gravity_pH pH = Gravity_pH(A0);
 
 char ssid[] = SECRET_SSID;       // your network SSID (name)
 char pass[] = SECRET_PASS;       // your network password (use for WPA, or use as key for WEP)
 int status = WL_IDLE_STATUS;     // the Wifi radio's status
 byte server[] = {192,168,0,200}; //Local Mosquitto server
 int port = 1883; //the port of the MQTT broker
+
 const char* topic = "phControl/phAdjust";
 const char* outTopic = "phControl/phRead";
 const char* restartTopic = "phControl/phReboot";
-int phDnPIN = 2;
-int phUpPIN = 3;
+
+int phDnPIN = 2; //pin connected to pH down pump
+int phUpPIN = 3; //pin connected to pH up pump
+
+// Time interval dosing pumps run for. Test each, calibrate the output, and adjust values or concentration of the additive
 int doseTimeSm = 1500;
 int doseTimeMed = 3000;
 int doseTimeLg = 4500;
+
+const long interval =60000;  // Interval in which pH readings will be taken and published
+const long resetInterval =3600000; // Interval for reboot loop
+unsigned long previousMillis = 0; // For pH read function
+unsigned long previousMillis1 = 0; //For reboot function
 
 // Handles messages arrived on subscribed topic(s)
 void callback(char* topic, byte* payload, unsigned int length) {
@@ -89,14 +100,7 @@ void callback(char* topic, byte* payload, unsigned int length) {
   }
 }
 
-WiFiClient wifiClient;
-PubSubClient mqttClient(server, port, callback, wifiClient);//Local Mosquitto Connection
-
-const long interval =60000;
-const long resetInterval =3600000;
-unsigned long previousMillis = 0;
-unsigned long previousMillis1 = 0;
-
+// Functions to clear and calibrate pH probe and prime dosing pumps
 int count = 0;
 
 uint8_t user_bytes_received = 0;                
@@ -140,14 +144,12 @@ void setup() {
   pinMode(phDnPIN, OUTPUT);
   
   //Initialize serial and wait for port to open:
-  Serial.begin(4800); // trying instead of the standard of 9600
+  Serial.begin(4800); // trying 4800 instead of the standard of 9600
   while (!Serial) {
     ; // wait for serial port to connect. Needed for native USB port only
   }
 
-  //WiFi Connection -- Start
-  // check for the WiFi module:
-  if (WiFi.status() == WL_NO_MODULE) {
+  if (WiFi.status() == WL_NO_MODULE) {      //WiFi Connection -- Start
     Serial.println("Communication with WiFi module failed!");
     while (true);  // don't continue
   }
@@ -157,22 +159,15 @@ void setup() {
     Serial.println("Please upgrade the firmware");
   }
 
-  // attempt to connect to Wifi network:
-  while (status != WL_CONNECTED) {
+  while (status != WL_CONNECTED) {   // attempt to connect to Wifi network:
     Serial.print("Attempting to connect to WPA SSID: ");
     Serial.println(ssid);
-    // Connect to WPA/WPA2 network:
-    status = WiFi.begin(ssid, pass);
-
-    // wait 15 seconds for connection:
-    delay(15000);
+    status = WiFi.begin(ssid, pass);  // Connect to WPA/WPA2 network:
+    delay(15000);  // wait 15 seconds for connection:
   }
-
-  Serial.print("You're connected to the network ");
-  //WiFi Connection -- End
-  
-  //Local Mosquitto Connection -- Start
-  if (mqttClient.connect( "ArduinoOG" )) {
+  Serial.print("You're connected to the network ");  //WiFi Connection -- End
+ 
+  if (mqttClient.connect( "ArduinoOG" )) {   //Local Mosquitto Connection -- Start
     // connection succeeded
     Serial.println("Connection succeeded.");
     Serial.print("Subscribing to the topic [");
@@ -182,13 +177,11 @@ void setup() {
     Serial.println("Successfully subscribed to the topic.");
    
    } else {
-      // connection failed
-      Serial.print("Connection failed. MQTT client state is: ");
+      Serial.print("Connection failed. MQTT client state is: ");    // connection failed
       Serial.println(mqttClient.state());
    } //Local Mosquitto Connection -- End
 
-// pH probe calibration serial commands
-  Serial.println();
+  Serial.println(); // pH probe calibration serial commands
   Serial.println(F("Use commands \"CAL,7\", \"CAL,4\", and \"CAL,10\" to calibrate the circuit to those respective values"));
   Serial.println(F("Use command \"CAL,CLEAR\" to clear the calibration"));
   if (pH.begin()) {                                     
@@ -196,15 +189,13 @@ void setup() {
   Serial.println();
   }
 }
-
-int connection_count = 0;
+                                  // Sets initial reconnection count to 0, 
+int connection_count = 0;         // a digit is added to the end of the client ID for each reconnect attmpt the program has run
 void reconnect() {
-  // Loop until we're reconnected
-  while (!mqttClient.connected()) {
+  while (!mqttClient.connected()) {    // Loop until we're reconnected
     Serial.print("Attempting MQTT connection...");
-    // Attempt to connect
       ++connection_count;
-      Serial.println("Arduino" + connection_count);
+      Serial.println("Arduino" + connection_count);  // Attempt to connect
       String clientID = "Arduino" + String(connection_count);
     if (mqttClient.connect( clientID.c_str())) {
       Serial.println("Reconnected");
@@ -213,46 +204,41 @@ void reconnect() {
       Serial.print("failed, rc=");
       Serial.print(mqttClient.state());
       Serial.println(" try again in 15 seconds");
-      // Wait 15 seconds before retrying
-      delay(15000);
+      delay(15000);       // Wait 15 seconds before retrying
     }
   }
 }
 
 void WiFiReconnect() {
-  //WiFi Connection -- Start
-  // check for the WiFi module:
-  if (WiFi.status() == WL_NO_MODULE) {
+  if (WiFi.status() == WL_NO_MODULE) {    //WiFi Connection -- Start
     Serial.println("Communication with WiFi module failed!");
-    // don't continue
-    while (true);
+    while (true);     // don't continue
   }
   String fv = WiFi.firmwareVersion();
   if (fv < "1.0.0") {
     Serial.println("Please upgrade the firmware");
   }
-  //WiFi ReConnection -- Start attempt to reconnect to Wifi network:
-  while (status != WL_CONNECTED) {
+ 
+  while (status != WL_CONNECTED) {    //WiFi ReConnection -- Start attempt to reconnect to Wifi network:
     Serial.print("Attempting to Reconnect to WPA SSID: ");
     Serial.println(ssid);
     status = WiFi.begin(ssid, pass);  // Connect to WPA/WPA2 network:
     delay(15000); // wait 15 seconds for connection:
   }
-  Serial.print("You're Reconnected to the network "); // you're connected now, so print out the data:
+  Serial.print("You're Reconnected to the network ");   // you're connected now, so print out the data:
   mqttClient.publish(restartTopic, "WiFi Reconnect Function Successful!",true);
-  //WiFi ReConnection -- End
-}
+}                                                             //WiFi ReConnection -- End
 
 void loop() {
- if (status != WL_CONNECTED) {
+ if (status != WL_CONNECTED) {  //check for WiFi connection and run WiFi reconnect loop if not
     WiFiReconnect();
-  } else if (!mqttClient.connected()) {
+  } else if (!mqttClient.connected()) {  //check for MQTT connection and run MQTT reconnect loop if not
     reconnect();
   } else {
   mqttClient.loop();
   callback;
   
-  unsigned long currentMillis = millis();
+  unsigned long currentMillis = millis();     // pH read routine
   if (currentMillis - previousMillis >= interval){
     previousMillis = currentMillis;
  
@@ -276,9 +262,9 @@ void loop() {
       mqttClient.publish(outTopic, String(newpH).c_str(), true); // Might add time stamp to see when sent (MQTT client stamps time received)
 
     Serial.println();
- }
+ }                                        // End pH read routine
  
-  void(* resetFunc) (void) = 0;
+  void(* resetFunc) (void) = 0;           //Periodic reboot function
  
   unsigned long currentMillis1 = millis();
   if (currentMillis1 - previousMillis1 >= resetInterval){
@@ -290,9 +276,9 @@ void loop() {
     resetFunc(); //call reset
     }
   }
-  void(* resetFunc) (void) = 0;
+  void(* resetFunc) (void) = 0;        //End Periodic reboot function
  
-  unsigned long currentMillis1 = millis();
+  unsigned long currentMillis1 = millis();  //reboot routine
   if (currentMillis1 - previousMillis1 >= resetInterval){
     previousMillis1 = currentMillis1;
     mqttClient.publish(restartTopic, "Rebooting!",true);
@@ -300,5 +286,5 @@ void loop() {
     void disconnect();
     delay(200);
     resetFunc(); //call reset 
- }
+ }                                        //End reboot routine
 }
